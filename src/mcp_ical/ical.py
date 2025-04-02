@@ -1,5 +1,5 @@
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from threading import Semaphore
 from typing import Any
 
@@ -18,6 +18,7 @@ from .models import (
     CreateEventRequest,
     Event,
     UpdateEventRequest,
+    SYSTEM_TZ,
 )
 
 logger.remove()
@@ -88,9 +89,15 @@ class CalendarManager:
         ekevent = EKEvent.eventWithEventStore_(self.event_store)
 
         ekevent.setTitle_(new_event.title)
-        ekevent.setStartDate_(new_event.start_time)
-        ekevent.setEndDate_(new_event.end_time)
-
+        
+        # Ensure start and end times have proper timezone information
+        start_time = new_event.start_time
+        end_time = new_event.end_time
+        
+        # Set the event times
+        ekevent.setStartDate_(start_time)
+        ekevent.setEndDate_(end_time)
+        
         if new_event.notes:
             ekevent.setNotes_(new_event.notes)
         if new_event.location:
@@ -102,7 +109,6 @@ class CalendarManager:
 
         if new_event.alarms_minutes_offsets:
             for minutes in new_event.alarms_minutes_offsets:
-                # actual_minutes = minutes + (9 * 60) if new_event.all_day else minutes
                 alarm = EKAlarm.alarmWithRelativeOffset_(-60 * minutes)
                 ekevent.addAlarm_(alarm)
 
@@ -156,10 +162,15 @@ class CalendarManager:
 
         if request.title is not None:
             existing_ek_event.setTitle_(request.title)
+            
         if request.start_time is not None:
+            # Ensure start time has proper timezone
             existing_ek_event.setStartDate_(request.start_time)
+            
         if request.end_time is not None:
+            # Ensure end time has proper timezone
             existing_ek_event.setEndDate_(request.end_time)
+            
         if request.location is not None:
             existing_ek_event.setLocation_(request.location)
         if request.notes is not None:
@@ -185,8 +196,10 @@ class CalendarManager:
         if request.alarms_minutes_offsets is not None:
             alarms = []
             for minutes in request.alarms_minutes_offsets:
-                # For all-day events EK considers start of day as reference point for alarms, so subtract one day
-                actual_minutes = minutes - 1440 if request.all_day else minutes
+                actual_minutes = minutes
+                # For all-day events EK considers start of day as reference point for alarms
+                if existing_ek_event.isAllDay() or (request.all_day is not None and request.all_day):
+                    actual_minutes = minutes
                 alarm = EKAlarm.alarmWithRelativeOffset_(-60 * actual_minutes)  # Convert to seconds
                 alarms.append(alarm)
             existing_ek_event.setAlarms_(alarms)

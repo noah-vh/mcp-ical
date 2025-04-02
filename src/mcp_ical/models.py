@@ -1,7 +1,9 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import IntEnum
-from typing import Annotated, Self
+from typing import Annotated, Self, Optional
+import zoneinfo
+import platform
 
 from EventKit import (
     EKEvent,  # type: ignore[import-untyped]
@@ -10,6 +12,7 @@ from EventKit import (
     EKRecurrenceRule,  # type: ignore[import-untyped]
 )
 from pydantic import BaseModel, BeforeValidator, Field, model_validator
+import Foundation
 
 
 class Frequency(IntEnum):
@@ -29,14 +32,59 @@ class Weekday(IntEnum):
     SATURDAY = 7
 
 
+def get_system_timezone() -> Optional[zoneinfo.ZoneInfo]:
+    """Get the system's timezone as a ZoneInfo object."""
+    try:
+        # Get system timezone from Foundation
+        tz_name = str(Foundation.NSTimeZone.localTimeZone().name())
+        return zoneinfo.ZoneInfo(tz_name)
+    except Exception:
+        # Fallback to platform-specific methods
+        try:
+            if platform.system() == 'Darwin':  # macOS
+                import subprocess
+                result = subprocess.run(['systemsetup', '-gettimezone'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    tz_line = result.stdout.strip()
+                    if ":" in tz_line:
+                        tz_name = tz_line.split(":", 1)[1].strip()
+                        return zoneinfo.ZoneInfo(tz_name)
+        except Exception:
+            pass
+        return None
+
+
+# Get system timezone once
+SYSTEM_TZ = get_system_timezone()
+
+
 def convert_datetime(v):
+    """Convert various datetime representations to timezone-aware datetime objects."""
     if hasattr(v, "timeIntervalSince1970"):
-        return datetime.fromtimestamp(v.timeIntervalSince1970())
+        # Convert NSDate to datetime in UTC, then to local timezone
+        utc_dt = datetime.fromtimestamp(v.timeIntervalSince1970(), timezone.utc)
+        if SYSTEM_TZ:
+            return utc_dt.astimezone(SYSTEM_TZ)
+        return utc_dt
 
     if isinstance(v, str):
-        return datetime.fromisoformat(v)
+        # Parse ISO string, assume UTC if not specified, then convert to local
+        dt = datetime.fromisoformat(v)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if SYSTEM_TZ:
+            return dt.astimezone(SYSTEM_TZ)
+        return dt
 
     if isinstance(v, datetime):
+        # If naive datetime, assume it's in local timezone
+        if v.tzinfo is None:
+            if SYSTEM_TZ:
+                return v.replace(tzinfo=SYSTEM_TZ)
+            return v
+        # If already timezone-aware, convert to local timezone
+        if SYSTEM_TZ:
+            return v.astimezone(SYSTEM_TZ)
         return v
 
     # If we don't recognize the type, let Pydantic handle it

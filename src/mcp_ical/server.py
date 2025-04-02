@@ -7,7 +7,7 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 from .ical import CalendarManager
-from .models import CreateEventRequest, UpdateEventRequest
+from .models import CreateEventRequest, UpdateEventRequest, SYSTEM_TZ
 
 mcp = FastMCP("Calendar")
 
@@ -17,6 +17,9 @@ logger.add(
     format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
     level="DEBUG",
 )
+
+# Log the system timezone info on startup
+logger.info(f"Calendar MCP using system timezone: {SYSTEM_TZ}")
 
 
 # Initialize the CalendarManager on demand in order to only request calendar permission
@@ -78,6 +81,9 @@ async def list_events(start_date: datetime, end_date: datetime, calendar_name: s
     The end_date should always use the time such that it represents the end of that day (23:59:59).
     This way, range based searches are always inclusive and can locate all events in that date range.
 
+    Times are interpreted in your Mac system's local timezone. If a timezone is not explicitly 
+    specified in the input, the system's local timezone will be used.
+
     Args:
         start_date: Start date in ISO8601 format (YYYY-MM-DDT00:00:00).
         end_date: Optional end date in ISO8601 format (YYYY-MM-DDT23:59:59).
@@ -98,6 +104,11 @@ async def list_events(start_date: datetime, end_date: datetime, calendar_name: s
 @mcp.tool()
 async def create_event(create_event_request: CreateEventRequest) -> str:
     """Create a new calendar event.
+
+    All times are interpreted in your Mac system's local timezone. If a timezone is not explicitly
+    specified in the input, the system's local timezone will be used. For example, if you specify
+    a time as "2023-05-15T15:00:00" and your Mac is set to Eastern Time, the event will be created at 
+    3:00 PM Eastern Time.
 
     Before using this tool, make sure to:
     1. Ask the user which calendar they want to use if not specified (check calendars://list)
@@ -149,6 +160,11 @@ async def create_event(create_event_request: CreateEventRequest) -> str:
 @mcp.tool()
 async def update_event(event_id: str, update_event_request: UpdateEventRequest) -> str:
     """Update an existing calendar event.
+
+    All times are interpreted in your Mac system's local timezone. If a timezone is not explicitly
+    specified in the input, the system's local timezone will be used. For example, if you specify
+    a time as "2023-05-15T15:00:00" and your Mac is set to Eastern Time, the event will be updated to 
+    3:00 PM Eastern Time.
 
     Before using this tool, make sure to:
     1. Ask the user which fields they want to update
